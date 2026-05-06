@@ -45,7 +45,7 @@ endif()
 # ---------------------------------------------------------------------------
 # LVGL 9.5
 # ---------------------------------------------------------------------------
-set(LV_CONF_BUILD_DISABLE_DEMOS ON CACHE BOOL "" FORCE)
+set(LV_CONF_BUILD_DISABLE_DEMOS OFF CACHE BOOL "" FORCE)
 set(LV_CONF_BUILD_DISABLE_EXAMPLES ON CACHE BOOL "" FORCE)
 set(LV_CONF_BUILD_DISABLE_THORVG OFF CACHE BOOL "" FORCE)
 set(LV_BUILD_CONF_DIR "${CMAKE_CURRENT_SOURCE_DIR}" CACHE PATH "" FORCE)
@@ -228,23 +228,27 @@ if(NOT MSVC)
     target_compile_options(cardputer-emu PRIVATE -Wno-c++11-narrowing)
 endif()
 
-# Force-load entire LVGL so all symbols are available to dlopen'd apps
+# Force-load entire LVGL + demos so all symbols (including lv_demo_widgets,
+# lv_demo_music, lv_demo_keypad_encoder, …) are available to dlopen'd apps.
 if(APPLE)
     target_link_libraries(cardputer-emu PRIVATE
         -Wl,-force_load,$<TARGET_FILE:lvgl>
         -Wl,-force_load,$<TARGET_FILE:lvgl_thorvg>
+        -Wl,-force_load,$<TARGET_FILE:lvgl_demos>
     )
 elseif(MSVC)
-    target_link_libraries(cardputer-emu PRIVATE lvgl lvgl_thorvg)
+    target_link_libraries(cardputer-emu PRIVATE lvgl lvgl_thorvg lvgl_demos)
     target_link_options(cardputer-emu PRIVATE
-        /WHOLEARCHIVE:lvgl /WHOLEARCHIVE:lvgl_thorvg)
+        /WHOLEARCHIVE:lvgl /WHOLEARCHIVE:lvgl_thorvg /WHOLEARCHIVE:lvgl_demos)
 elseif(WIN32)
     # MinGW: no whole-archive (app is static-linked, no DLL symbol export needed)
-    target_link_libraries(cardputer-emu PRIVATE lvgl lvgl_thorvg)
+    target_link_libraries(cardputer-emu PRIVATE lvgl lvgl_thorvg lvgl_demos)
 else()
     # Linux: --whole-archive for dlopen'd apps
     target_link_libraries(cardputer-emu PRIVATE
-        -Wl,--whole-archive $<TARGET_FILE:lvgl> $<TARGET_FILE:lvgl_thorvg> -Wl,--no-whole-archive
+        -Wl,--whole-archive
+        $<TARGET_FILE:lvgl> $<TARGET_FILE:lvgl_thorvg> $<TARGET_FILE:lvgl_demos>
+        -Wl,--no-whole-archive
     )
 endif()
 
