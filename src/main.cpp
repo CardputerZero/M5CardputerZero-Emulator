@@ -101,6 +101,7 @@ static void toggle_modifier(int r, int c)
 }
 
 static int g_pr = -1, g_pc = -1;
+static SDL_Keycode g_pressed_sym = 0;   // sym actually injected on press — reused on release
 static SDL_Window   *g_win = nullptr;
 static SDL_Renderer *g_ren = nullptr;
 static SDL_Texture  *g_skin_tex = nullptr;
@@ -173,6 +174,92 @@ static void flush_cb(lv_display_t *, const lv_area_t *area, uint8_t *px)
         }
     }
     lv_display_flush_ready(lv_display_get_default());
+}
+
+// ── Modifier-layer remap ────────────────────────────────────────
+// The skin shows Fn/SYM/Aa overlays on the letter keys (▲▼◄► on F/X/Z/C,
+// PgUp/PgDn on K/L, etc). Modifier highlights alone don't change what gets
+// injected — we translate the base sym into the layered sym here.
+//
+// Fn layer (orange labels in the skin):
+//   F → UP, X → DOWN, Z → LEFT, C → RIGHT
+//   K → PAGEUP, L → PAGEDOWN, N → HOME, M → END (Ins isn't a useful keycode
+//   for NC2000; map to INSERT anyway — the core ignores unknown keys).
+//   V → COMMA, B → PERIOD (the printed `<` / `>` glyphs)
+// SYM layer (blue labels):
+//   Q..P second-row punctuation shown on the skin. For now we forward the
+//   real printed char where it maps to an SDL keycode the NC2000 core also
+//   recognizes (semicolon/quote/backslash etc). Rarely-used entries pass
+//   the base key through.
+// Aa layer: nothing to remap for letters; NC2000 doesn't use case. Left as
+// a no-op so the highlight is still visible.
+static SDL_Keycode apply_fn_layer(SDL_Keycode k)
+{
+    switch (k) {
+        // Top row: digits carry F1..F10 on the Fn layer. F5..F10 are the
+        // NC2000 function keys (英汉/名片/计算/行程/测验/时间); F1..F4 map
+        // to the NC2000 editor keys (插入/删除/查找/修改). Matches the
+        // skin overlay and the F-row mapping in apps/nc2000/src/key_new.cpp.
+        case SDLK_1: return SDLK_F1;
+        case SDLK_2: return SDLK_F2;
+        case SDLK_3: return SDLK_F3;
+        case SDLK_4: return SDLK_F4;
+        case SDLK_5: return SDLK_F5;
+        case SDLK_6: return SDLK_F6;
+        case SDLK_7: return SDLK_F7;
+        case SDLK_8: return SDLK_F8;
+        case SDLK_9: return SDLK_F9;
+        case SDLK_0: return SDLK_F10;
+        // Second row: O/P carry F11/F12 on the Fn layer (网络 / on-off).
+        case SDLK_o: return SDLK_F11;
+        case SDLK_p: return SDLK_F12;
+        // Directional / paging overlay on the letter rows.
+        case SDLK_f: return SDLK_UP;
+        case SDLK_x: return SDLK_DOWN;
+        case SDLK_z: return SDLK_LEFT;
+        case SDLK_c: return SDLK_RIGHT;
+        case SDLK_k: return SDLK_PAGEUP;
+        case SDLK_l: return SDLK_PAGEDOWN;
+        case SDLK_n: return SDLK_HOME;
+        case SDLK_m: return SDLK_INSERT;
+        case SDLK_v: return SDLK_COMMA;
+        case SDLK_b: return SDLK_PERIOD;
+        default:     return k;
+    }
+}
+
+static SDL_Keycode apply_sym_layer(SDL_Keycode k)
+{
+    // Second-row SYM glyphs printed on the skin: ~ ` + - / \ { [ }
+    // Map to whatever keycodes NC2000's handle_key_wayback recognizes.
+    switch (k) {
+        case SDLK_w: return SDLK_BACKQUOTE;    // W` → `
+        case SDLK_e: return SDLK_EQUALS;       // E+ → =
+        case SDLK_r: return SDLK_MINUS;        // R-
+        case SDLK_t: return SDLK_SLASH;        // T/
+        case SDLK_y: return SDLK_BACKSLASH;    // Y\
+        case SDLK_u: return SDLK_LEFTBRACKET;  // U{ → [
+        case SDLK_i: return SDLK_RIGHTBRACKET; // I[ → ]
+        case SDLK_a: return SDLK_COMMA;        // A, (duplicated row: real `,` on V, here sym layer on A)
+        case SDLK_d: return SDLK_BACKSLASH;    // D|
+        case SDLK_h: return SDLK_COLON;        // H:
+        case SDLK_j: return SDLK_SEMICOLON;    // J;
+        case SDLK_k: return SDLK_UNDERSCORE;   // K_
+        case SDLK_l: return SDLK_QUESTION;     // L?
+        case SDLK_b: return SDLK_LESS;         // B<
+        case SDLK_n: return SDLK_GREATER;      // N>
+        default:     return k;
+    }
+}
+
+static SDL_Keycode apply_modifier_layers(SDL_Keycode k)
+{
+    // Fn wins over Sym (matches device tca8418 keymap ordering). Only apply
+    // the translation for keys where a layer is actually defined — modifiers
+    // and top-row digits pass through unchanged.
+    if (g_mod_fn)  return apply_fn_layer(k);
+    if (g_mod_sym) return apply_sym_layer(k);
+    return k;
 }
 
 // ── Inject SDL key event ────────────────────────────────────────
@@ -408,7 +495,8 @@ int main(int argc, char *argv[])
                         toggle_modifier(r, c);
                     } else {
                         g_pr = r; g_pc = c;
-                        inject_sdl_key(g_keys[r][c].key, true);
+                        g_pressed_sym = apply_modifier_layers(g_keys[r][c].key);
+                        inject_sdl_key(g_pressed_sym, true);
                     }
                 }
             }
@@ -417,12 +505,23 @@ int main(int argc, char *argv[])
                     inject_sdl_key(g_side_keys[g_side_pr].key, false);
                     g_side_pr = -1;
                 } else if (g_pr >= 0) {
-                    inject_sdl_key(g_keys[g_pr][g_pc].key, false);
+                    inject_sdl_key(g_pressed_sym, false);
                     g_pr = -1;
+                    g_pressed_sym = 0;
                 }
             }
             else if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP ||
                      ev.type == SDL_TEXTINPUT) {
+                // Physical keyboard path. Mac doesn't have an Fn/Sym modifier
+                // we can detect, so we remap only when the user has toggled
+                // the on-screen modifier. This lets you e.g. click "fn", then
+                // press `f` on your laptop to get ▲.
+                if ((ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) &&
+                    (g_mod_fn || g_mod_sym)) {
+                    ev.key.keysym.sym = apply_modifier_layers(ev.key.keysym.sym);
+                    ev.key.keysym.scancode =
+                        SDL_GetScancodeFromKey(ev.key.keysym.sym);
+                }
                 if (g_kbd_handler) g_kbd_handler(&ev);
             }
         }
