@@ -406,6 +406,13 @@ int main(int argc, char *argv[])
     printf("[EMU] Window: %dx%d  Renderer: %dx%d  DPI scale: %.1f\n",
            win_w, win_h, render_w, render_h, g_dpi_scale);
 
+    // Set logical size so all render coords use the 1280x840 skin space
+    // regardless of actual renderer pixel dimensions (fixes non-Retina displays)
+    SDL_RenderSetLogicalSize(g_ren, SKIN_W, SKIN_H);
+    printf("[EMU] Logical render size: %dx%d\n", SKIN_W, SKIN_H);
+    printf("[EMU] LCD rect: x=%d y=%d w=%d h=%d (in skin coords)\n",
+           LCD_SX, LCD_SY, LCD_SW, LCD_SH);
+
     SDL_Surface *surf = IMG_Load("assets/device_skin.png");
     if (!surf) { fprintf(stderr, "skin: %s\n", IMG_GetError()); return 1; }
     g_skin_tex = SDL_CreateTextureFromSurface(g_ren, surf);
