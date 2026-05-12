@@ -53,12 +53,10 @@ static KeyRect g_keys[4][11] = {
 };
 
 // ── Side buttons + POWER ────────────────────────────────────────
-static constexpr int SIDE_POWER = 4; // index of POWER in g_side_keys
-static constexpr int NUM_SIDE_KEYS = 5;
+static constexpr int SIDE_POWER = 2; // index of POWER in g_side_keys
+static constexpr int NUM_SIDE_KEYS = 3;
 static KeyRect g_side_keys[NUM_SIDE_KEYS] = {
     {49,  365, 71, 41, SDLK_ESCAPE},  // ESC (left)
-    {158, 365, 75, 45, SDLK_HOME},    // HOME (left)
-    {1058,365, 75, 45, SDLK_F3},      // TALK (right)
     {1166,365, 71, 41, SDLK_TAB},     // NEXT/tab (right)
     {1080, 40, 100, 60, SDLK_POWER},  // POWER (right top, red ON switch)
 };
