@@ -56,10 +56,10 @@ static KeyRect g_keys[4][11] = {
 static constexpr int SIDE_POWER = 4; // index of POWER in g_side_keys
 static constexpr int NUM_SIDE_KEYS = 5;
 static KeyRect g_side_keys[NUM_SIDE_KEYS] = {
-    {49,  365, 75, 45, SDLK_ESCAPE},  // ESC (left)
+    {49,  365, 71, 41, SDLK_ESCAPE},  // ESC (left)
     {158, 365, 75, 45, SDLK_HOME},    // HOME (left)
     {1058,365, 75, 45, SDLK_F3},      // TALK (right)
-    {1166,365, 75, 45, SDLK_TAB},     // NEXT/tab (right)
+    {1166,365, 71, 41, SDLK_TAB},     // NEXT/tab (right)
     {1080, 40, 100, 60, SDLK_POWER},  // POWER (right top, red ON switch)
 };
 
@@ -117,19 +117,12 @@ static float g_dpi_scale = 1.0f;  // renderer_pixels / window_points
 static int g_side_pr = -1;  // pressed side key index
 
 // Convert mouse window coords → skin coords (1280x840)
+// With SDL_RenderSetLogicalSize set, SDL already reports mouse events
+// in logical coordinates, so we just pass through.
 static void mouse_to_skin(int mx, int my, int *sx, int *sy)
 {
-    int rw, rh;
-    SDL_GetRendererOutputSize(g_ren, &rw, &rh);
-    *sx = mx * SKIN_W / (rw > 0 ? rw : SKIN_W);
-    *sy = my * SKIN_H / (rh > 0 ? rh : SKIN_H);
-    // On Retina: rw=1280, mouse is in 640 logical → sx = mx*1280/1280 wrong
-    // Actually SDL mouse coords are always in window logical points
-    // We need: sx = mx * SKIN_W / window_w
-    int ww, wh;
-    SDL_GetWindowSize(g_win, &ww, &wh);
-    *sx = mx * SKIN_W / (ww > 0 ? ww : 1);
-    *sy = my * SKIN_H / (wh > 0 ? wh : 1);
+    *sx = mx;
+    *sy = my;
 }
 
 static bool hit_key(int mx, int my, int *r, int *c)
@@ -468,6 +461,10 @@ int main(int argc, char *argv[])
 
             if (ev.type == SDL_MOUSEBUTTONDOWN) {
                 int r, c;
+                int sx_dbg, sy_dbg;
+                mouse_to_skin(ev.button.x, ev.button.y, &sx_dbg, &sy_dbg);
+                printf("[EMU] CLICK mouse=(%d,%d) skin=(%d,%d)\n",
+                       ev.button.x, ev.button.y, sx_dbg, sy_dbg);
                 int side = hit_side_key(ev.button.x, ev.button.y);
                 if (side == SIDE_POWER) {
                     g_side_pr = side;
@@ -495,14 +492,17 @@ int main(int argc, char *argv[])
                     }
                     g_side_pr = -1;
                 } else if (side >= 0) {
+                    printf("[EMU] HIT side_key[%d] key=0x%x\n", side, g_side_keys[side].key);
                     g_side_pr = side;
                     inject_sdl_key(g_side_keys[side].key, true);
                 } else if (hit_key(ev.button.x, ev.button.y, &r, &c)) {
                     if (is_modifier(r, c)) {
+                        printf("[EMU] HIT modifier r=%d c=%d\n", r, c);
                         toggle_modifier(r, c);
                     } else {
                         g_pr = r; g_pc = c;
                         g_pressed_sym = apply_modifier_layers(g_keys[r][c].key);
+                        printf("[EMU] HIT key r=%d c=%d sym=0x%x\n", r, c, g_pressed_sym);
                         inject_sdl_key(g_pressed_sym, true);
                     }
                 }
