@@ -7,7 +7,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Paths
-set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/M5CardputerZero-UserDemo)
+set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/M5CardputerZero-Launcher)
 set(APPLAUNCH  ${VENDOR_DIR}/projects/APPLaunch/main)
 set(USERDEMO   ${VENDOR_DIR}/projects/UserDemo/main)
 
