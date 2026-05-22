@@ -7,7 +7,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Paths
-set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/M5CardputerZero-UserDemo)
+set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/M5CardputerZero-Launcher)
 set(APPLAUNCH  ${VENDOR_DIR}/projects/APPLaunch/main)
 set(USERDEMO   ${VENDOR_DIR}/projects/UserDemo/main)
 
@@ -117,6 +117,10 @@ file(GLOB_RECURSE APPLAUNCH_UI_C   ${APPLAUNCH}/ui/*.c)
 file(GLOB_RECURSE APPLAUNCH_UI_CPP ${APPLAUNCH}/ui/*.cpp)
 file(GLOB         APPLAUNCH_KBD    ${APPLAUNCH}/src/keyboard_input.c)
 
+# HAL platform sources (SDL for emulator builds)
+file(GLOB APPLAUNCH_HAL_SDL_C   ${APPLAUNCH}/hal/sdl/*.c)
+file(GLOB APPLAUNCH_HAL_SDL_CPP ${APPLAUNCH}/hal/sdl/*.cpp)
+
 # ---------------------------------------------------------------------------
 # APP: APPLaunch shared lib (Unix only — Windows statically links into exe)
 # ---------------------------------------------------------------------------
@@ -126,6 +130,8 @@ add_library(APPLaunch SHARED
     ${APPLAUNCH_UI_C}
     ${APPLAUNCH_UI_CPP}
     ${APPLAUNCH_KBD}
+    ${APPLAUNCH_HAL_SDL_C}
+    ${APPLAUNCH_HAL_SDL_CPP}
 )
 if(WIN32)
     # MinGW needs: sys/queue.h, sys/wait.h stubs (no fork), unistd extras
@@ -134,10 +140,13 @@ endif()
 target_include_directories(APPLaunch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${APPLAUNCH}/ui
     ${APPLAUNCH}/include
     ${APPLAUNCH}
+    ${APPLAUNCH}/hal
 )
+target_compile_definitions(APPLaunch PRIVATE HAL_PLATFORM_SDL=1)
 if(WIN32)
     target_compile_options(APPLaunch PRIVATE
         "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat_win.h"
@@ -195,6 +204,7 @@ if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
         ${APPLAUNCH_UI_C} ${APPLAUNCH_UI_CPP} ${APPLAUNCH_KBD})
     target_include_directories(cardputer-emu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/compat  # win32_stubs.h, sys/queue.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
         ${APPLAUNCH}/ui ${APPLAUNCH}/include ${APPLAUNCH})
     if(WIN32)
         target_compile_options(cardputer-emu PRIVATE
@@ -339,6 +349,7 @@ if(EMSCRIPTEN)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/lib
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
         ${APPLAUNCH}/ui
         ${APPLAUNCH}/include
         ${APPLAUNCH}

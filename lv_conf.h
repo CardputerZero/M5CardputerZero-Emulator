@@ -374,7 +374,7 @@
 #define LV_USE_LIBJPEG_TURBO 0
 #define LV_USE_LIBWEBP 0
 
-#define LV_USE_GIF 0
+#define LV_USE_GIF 1
 
 #define LV_USE_GSTREAMER 0
 #define LV_BIN_DECODER_RAM_LOAD 0
