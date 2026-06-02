@@ -211,7 +211,7 @@ if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
             "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat_win.h"
             -Wno-c++11-narrowing)
     endif()
-    target_compile_definitions(cardputer-emu PRIVATE EMU_STATIC_APP=1)
+    target_compile_definitions(cardputer-emu PRIVATE EMU_STATIC_APP=1 HAL_PLATFORM_SDL=1)
     # MinGW: allow multiple definitions (APPLaunch overrides LVGL's SDL keyboard)
     target_link_options(cardputer-emu PRIVATE -Wl,--allow-multiple-definition)
 elseif(WIN32)
@@ -354,6 +354,7 @@ if(EMSCRIPTEN)
         ${APPLAUNCH_INCLUDES}
     )
     target_link_libraries(cardputer-emu-web PRIVATE emu::launcher_apply)
+    target_compile_definitions(cardputer-emu-web PRIVATE HAL_PLATFORM_SDL=1)
 
     target_compile_options(cardputer-emu-web PRIVATE
         -include ${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat.h
