@@ -59,12 +59,12 @@ set(_any_patch_active FALSE)
 # inside #ifdef __linux__, so dropping the SDL guard is safe.
 #
 # Upstream fix: drop the SDL guard, route remaining raw syscalls through HAL.
-# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD
+# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
 _emu_patch_vendor_file(
     "projects/APPLaunch/main/ui/components/page_app/ui_app_setup.hpp"
     "#if !defined\\(HAL_PLATFORM_SDL\\)"
     "#if 1  // emu-workaround: SDL guard disabled — apply_vendor_workarounds.cmake"
-    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD"
+    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
 )
 set(_any_patch_active TRUE)
 
@@ -79,12 +79,25 @@ set(_any_patch_active TRUE)
 #
 # Tighten the guards in ui_app_launch.cpp to match the headers' SDL guard.
 # Upstream fix: pick ONE guard convention (HAL_PLATFORM_SDL only) consistently.
-# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD
+# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
 _emu_patch_vendor_file(
     "projects/APPLaunch/main/ui/components/ui_app_launch.cpp"
     "#ifdef __linux__"
     "#if defined(__linux__) && !defined(HAL_PLATFORM_SDL)  // emu-workaround"
-    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD"
+    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
+)
+
+# ─── Workaround #3: hal_filesystem_sdl.cpp missing <stdio.h> for snprintf ────
+# Builds fine on glibc/libc++ where <string.h>/<stdlib.h> transitively pull
+# in <stdio.h>, but fails on MSYS2 MinGW with `'snprintf' was not declared`.
+# Trivial header fix.
+#
+# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
+_emu_patch_vendor_file(
+    "projects/APPLaunch/main/hal/sdl/hal_filesystem_sdl.cpp"
+    "#include \"../hal_filesystem.h\"\n#include <string.h>"
+    "#include \"../hal_filesystem.h\"\n#include <stdio.h>   // snprintf — emu-workaround\n#include <string.h>"
+    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
 )
 
 # ─── Future entries follow the same pattern ──────────────────────────────────
