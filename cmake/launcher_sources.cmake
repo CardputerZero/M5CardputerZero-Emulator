@@ -27,6 +27,31 @@ endif()
 set(APPLAUNCH ${VENDOR_DIR}/projects/APPLaunch/main)
 set(USERDEMO  ${VENDOR_DIR}/projects/UserDemo/main)
 
+# ── generate page_app.h ──────────────────────────────────────────────────────
+# Launcher's SConstruct runs generate_page_app_includes.py at build time to
+# produce ui/components/page_app.h from the .hpp files in ui/components/page_app/.
+# That file is .gitignore'd in the launcher repo (so writing it doesn't dirty
+# `git status`). We replicate the generator in pure CMake here so a vanilla
+# `cmake .. && make` works without invoking SCons.
+set(_page_app_dir   ${APPLAUNCH}/ui/components/page_app)
+set(_page_app_h     ${APPLAUNCH}/ui/components/page_app.h)
+if(IS_DIRECTORY "${_page_app_dir}")
+    file(GLOB _page_app_headers
+        RELATIVE ${APPLAUNCH}/ui/components
+        CONFIGURE_DEPENDS
+        ${_page_app_dir}/*.hpp
+    )
+    list(SORT _page_app_headers)
+    if(_page_app_headers)
+        file(WRITE  "${_page_app_h}" "#pragma once\n\n")
+        foreach(_h ${_page_app_headers})
+            file(APPEND "${_page_app_h}" "#include \"${_h}\"\n")
+        endforeach()
+    else()
+        message(WARNING "launcher_sources.cmake: page_app/ exists but contains no .hpp files")
+    endif()
+endif()
+
 # ── source globs ─────────────────────────────────────────────────────────────
 file(GLOB_RECURSE APPLAUNCH_UI_C   ${APPLAUNCH}/ui/*.c)
 file(GLOB_RECURSE APPLAUNCH_UI_CPP ${APPLAUNCH}/ui/*.cpp)
