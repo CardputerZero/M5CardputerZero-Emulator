@@ -52,61 +52,24 @@ endfunction()
 
 set(_any_patch_active FALSE)
 
-# ─── Workaround #1: ui_app_setup.hpp wrapped in `#if !defined(HAL_PLATFORM_SDL)` ───
-# The whole UISetupPage class is excluded under SDL builds, but ui_app_launch.cpp
-# still references `page_v<UISetupPage>`. The class body is in fact already HAL-
-# clean (uses hal_wifi_*, hal_battery_*); residual i2c ioctl spots are already
-# inside #ifdef __linux__, so dropping the SDL guard is safe.
+# ─── No active workarounds ───────────────────────────────────────────────────
+# All previous entries (#1 ui_app_setup SDL guard, #2 ui_app_launch __linux__
+# guards, #3 hal_filesystem_sdl missing stdio.h) were resolved upstream by
+# https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48 and the
+# submodule has been bumped past it.
 #
-# Upstream fix: drop the SDL guard, route remaining raw syscalls through HAL.
-# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
-_emu_patch_vendor_file(
-    "projects/APPLaunch/main/ui/components/page_app/ui_app_setup.hpp"
-    "#if !defined\\(HAL_PLATFORM_SDL\\)"
-    "#if 1  // emu-workaround: SDL guard disabled — apply_vendor_workarounds.cmake"
-    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
-)
-set(_any_patch_active TRUE)
+# This file remains as the documented hook for the next time we need a
+# narrowly-scoped patch against the launcher submodule. Each new entry MUST
+# link to the upstream tracking PR that will retire it.
 
-# ─── Workaround #2: ui_app_launch.cpp registers Linux-only pages whose ───────
-# ─── headers are SDL-guarded ─────────────────────────────────────────────────
-# In the launcher source, ui_app_launch.cpp wraps Linux-only page registrations
-# with `#ifdef __linux__`, but the page headers themselves are wrapped with
-# `#if !defined(HAL_PLATFORM_SDL)`. The two guards don't align: when emu builds
-# on a Linux host (real linux + SDL), `__linux__` is defined so the registration
-# code activates, but `HAL_PLATFORM_SDL` is also defined so the page classes
-# are excluded — and we hit `'UICameraPage' was not declared`.
-#
-# Tighten the guards in ui_app_launch.cpp to match the headers' SDL guard.
-# Upstream fix: pick ONE guard convention (HAL_PLATFORM_SDL only) consistently.
-# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
-_emu_patch_vendor_file(
-    "projects/APPLaunch/main/ui/components/ui_app_launch.cpp"
-    "#ifdef __linux__"
-    "#if defined(__linux__) && !defined(HAL_PLATFORM_SDL)  // emu-workaround"
-    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
-)
-
-# ─── Workaround #3: hal_filesystem_sdl.cpp missing <stdio.h> for snprintf ────
-# Builds fine on glibc/libc++ where <string.h>/<stdlib.h> transitively pull
-# in <stdio.h>, but fails on MSYS2 MinGW with `'snprintf' was not declared`.
-# Trivial header fix.
-#
-# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48
-_emu_patch_vendor_file(
-    "projects/APPLaunch/main/hal/sdl/hal_filesystem_sdl.cpp"
-    "#include \"../hal_filesystem.h\"\n#include <string.h>"
-    "#include \"../hal_filesystem.h\"\n#include <stdio.h>   // snprintf — emu-workaround\n#include <string.h>"
-    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/48"
-)
-
-# ─── Future entries follow the same pattern ──────────────────────────────────
+# ─── New entries follow the same pattern ─────────────────────────────────────
 # _emu_patch_vendor_file(
 #     "projects/APPLaunch/main/path/to/file.cpp"
 #     "regex-of-broken-line"
 #     "replacement"
 #     "https://github.com/.../pull/NNN"
 # )
+# set(_any_patch_active TRUE)
 
 if(_any_patch_active)
     message(STATUS "[vendor-patch] one or more launcher submodule files patched in working tree.")
