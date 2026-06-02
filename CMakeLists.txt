@@ -198,7 +198,8 @@ endif()
 if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
     # Windows: statically link APPLaunch (avoids DLL duplicate LVGL globals)
     add_executable(cardputer-emu src/main.cpp src/device_skin.cpp
-        ${APPLAUNCH_UI_C} ${APPLAUNCH_UI_CPP} ${APPLAUNCH_KBD})
+        ${APPLAUNCH_UI_C} ${APPLAUNCH_UI_CPP} ${APPLAUNCH_KBD}
+        ${APPLAUNCH_HAL_SDL_C} ${APPLAUNCH_HAL_SDL_CPP})
     target_include_directories(cardputer-emu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/compat  # win32_stubs.h, sys/queue.h
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -336,6 +337,8 @@ if(EMSCRIPTEN)
         ${APPLAUNCH_UI_C}
         ${APPLAUNCH_UI_CPP}
         ${APPLAUNCH_KBD}
+        ${APPLAUNCH_HAL_SDL_C}
+        ${APPLAUNCH_HAL_SDL_CPP}
     )
 
     target_include_directories(cardputer-emu-web PRIVATE

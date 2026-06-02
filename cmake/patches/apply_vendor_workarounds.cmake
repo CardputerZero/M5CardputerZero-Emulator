@@ -68,6 +68,25 @@ _emu_patch_vendor_file(
 )
 set(_any_patch_active TRUE)
 
+# ─── Workaround #2: ui_app_launch.cpp registers Linux-only pages whose ───────
+# ─── headers are SDL-guarded ─────────────────────────────────────────────────
+# In the launcher source, ui_app_launch.cpp wraps Linux-only page registrations
+# with `#ifdef __linux__`, but the page headers themselves are wrapped with
+# `#if !defined(HAL_PLATFORM_SDL)`. The two guards don't align: when emu builds
+# on a Linux host (real linux + SDL), `__linux__` is defined so the registration
+# code activates, but `HAL_PLATFORM_SDL` is also defined so the page classes
+# are excluded — and we hit `'UICameraPage' was not declared`.
+#
+# Tighten the guards in ui_app_launch.cpp to match the headers' SDL guard.
+# Upstream fix: pick ONE guard convention (HAL_PLATFORM_SDL only) consistently.
+# Tracking PR: https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD
+_emu_patch_vendor_file(
+    "projects/APPLaunch/main/ui/components/ui_app_launch.cpp"
+    "#ifdef __linux__"
+    "#if defined(__linux__) && !defined(HAL_PLATFORM_SDL)  // emu-workaround"
+    "https://github.com/CardputerZero/M5CardputerZero-Launcher/pull/TBD"
+)
+
 # ─── Future entries follow the same pattern ──────────────────────────────────
 # _emu_patch_vendor_file(
 #     "projects/APPLaunch/main/path/to/file.cpp"
