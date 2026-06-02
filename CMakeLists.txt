@@ -250,6 +250,8 @@ elseif(MSVC)
 elseif(WIN32)
     # MinGW: no whole-archive (app is static-linked, no DLL symbol export needed)
     target_link_libraries(cardputer-emu PRIVATE lvgl lvgl_thorvg)
+    # WinSock for gethostname() in launcher's ui_app_hack.hpp.
+    target_link_libraries(cardputer-emu PRIVATE ws2_32)
 else()
     # Linux: --whole-archive for dlopen'd apps
     target_link_libraries(cardputer-emu PRIVATE
