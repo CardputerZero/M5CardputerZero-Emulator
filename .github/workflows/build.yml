@@ -8,191 +8,261 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── macOS ───────────────────────────────────────────────────
+  # ── macOS arm64 + x64 (matrix) ──────────────────────────────────────────────
   macos:
-    runs-on: macos-latest
+    name: macos-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install dependencies
-      run: brew install sdl2 sdl2_image freetype pkg-config
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
-        make -j$(sysctl -n hw.ncpu)
-    - name: Package
-      run: |
-        mkdir -p dist/M5CardputerZero-Emulator
-        cp build/cardputer-emu dist/M5CardputerZero-Emulator/
-        cp -r build/apps dist/M5CardputerZero-Emulator/
-        cp -r build/assets dist/M5CardputerZero-Emulator/
-        cp -r build/share dist/M5CardputerZero-Emulator/
-        cd dist && tar czf ../M5CardputerZero-Emulator-macOS.tar.gz M5CardputerZero-Emulator
-    - uses: actions/upload-artifact@v4
-      with:
-        name: emulator-macos
-        path: M5CardputerZero-Emulator-macOS.tar.gz
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          brew update >/dev/null
+          brew install sdl2 sdl2_image freetype pkg-config
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j$(sysctl -n hw.ncpu)
+      - name: Bundle dylibs
+        run: |
+          set -euxo pipefail
+          DIST=dist/M5CardputerZero-Emulator
+          mkdir -p "$DIST"
+          cp build/cardputer-emu "$DIST/"
+          cp -r build/apps "$DIST/"
+          cp -r build/assets "$DIST/"
+          cp -r build/share "$DIST/"
+          # Copy non-system dylib deps next to the binary and rewrite rpaths.
+          if ! command -v dylibbundler >/dev/null 2>&1; then
+            brew install dylibbundler
+          fi
+          dylibbundler -od -b \
+            -x "$DIST/cardputer-emu" \
+            -x "$DIST/apps/libAPPLaunch.dylib" \
+            -x "$DIST/apps/libUserDemo.dylib" \
+            -d "$DIST/libs" -p "@executable_path/libs/" || \
+            echo "[warn] dylibbundler returned non-zero (continuing — dependencies may already resolve)"
+      - name: Package
+        run: |
+          cd dist && tar czf ../M5CardputerZero-Emulator-macOS-${{ matrix.arch }}.tar.gz M5CardputerZero-Emulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-macos-${{ matrix.arch }}
+          path: M5CardputerZero-Emulator-macOS-${{ matrix.arch }}.tar.gz
 
-  # ── Windows (MinGW-w64) ─────────────────────────────────────
+  # ── macOS Universal (lipo merge of arm64 + x64) ────────────────────────────
+  macos-universal:
+    name: macos-universal
+    needs: macos
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: emulator-macos-*
+          path: artifacts
+      - name: Build universal bundle via lipo
+        run: |
+          set -euxo pipefail
+          mkdir -p arm64 x64 universal/M5CardputerZero-Emulator
+          tar xzf artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.tar.gz -C arm64
+          tar xzf artifacts/emulator-macos-x64/M5CardputerZero-Emulator-macOS-x64.tar.gz   -C x64
+
+          ARM=arm64/M5CardputerZero-Emulator
+          X64=x64/M5CardputerZero-Emulator
+          UNI=universal/M5CardputerZero-Emulator
+
+          # Mirror arm64 layout, then lipo-merge every Mach-O.
+          rsync -a "$ARM/" "$UNI/"
+          while IFS= read -r -d '' rel; do
+            file_arm="$ARM/$rel"
+            file_x64="$X64/$rel"
+            file_uni="$UNI/$rel"
+            if [ -f "$file_x64" ] && file "$file_arm" | grep -q "Mach-O"; then
+              lipo -create "$file_arm" "$file_x64" -output "$file_uni" 2>/dev/null \
+                || cp "$file_arm" "$file_uni"
+            fi
+          done < <(cd "$ARM" && find . -type f -print0)
+
+          # Sanity: confirm executable is now fat
+          file "$UNI/cardputer-emu"
+          lipo -info "$UNI/cardputer-emu"
+
+          cd universal && tar czf ../M5CardputerZero-Emulator-macOS-universal.tar.gz M5CardputerZero-Emulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-macos-universal
+          path: M5CardputerZero-Emulator-macOS-universal.tar.gz
+
+  # ── Windows x64 (MinGW-w64) ────────────────────────────────────────────────
   windows:
+    name: windows-x64
     runs-on: windows-latest
     defaults:
       run:
         shell: msys2 {0}
     steps:
-    - uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        install: >-
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-SDL2
-          mingw-w64-x86_64-SDL2_image
-          mingw-w64-x86_64-freetype
-          mingw-w64-x86_64-winpthreads-git
-          make
-          git
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake .. -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release
-        make -j$(nproc)
-    - name: Package
-      run: |
-        mkdir -p dist/M5CardputerZero-Emulator
-        cp build/cardputer-emu.exe dist/M5CardputerZero-Emulator/
-        cp -r build/apps dist/M5CardputerZero-Emulator/ 2>/dev/null || true
-        cp -r build/assets dist/M5CardputerZero-Emulator/ 2>/dev/null || true
-        cp -r build/share dist/M5CardputerZero-Emulator/ 2>/dev/null || true
-        # Copy all DLL dependencies automatically
-        ldd build/cardputer-emu.exe | grep mingw64 | awk '{print $3}' | while read dll; do
-          cp "$dll" dist/M5CardputerZero-Emulator/
-        done
-        cd dist && tar czf ../M5CardputerZero-Emulator-Windows.tar.gz M5CardputerZero-Emulator
-    - uses: actions/upload-artifact@v4
-      with:
-        name: emulator-windows
-        path: M5CardputerZero-Emulator-Windows.tar.gz
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-freetype
+            mingw-w64-x86_64-winpthreads-git
+            make
+            git
+            zip
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+      - name: Bundle DLLs
+        run: |
+          set -euxo pipefail
+          DIST=dist/M5CardputerZero-Emulator
+          mkdir -p "$DIST"
+          cp build/cardputer-emu.exe "$DIST/"
+          cp -r build/apps   "$DIST/" 2>/dev/null || true
+          cp -r build/assets "$DIST/" 2>/dev/null || true
+          cp -r build/share  "$DIST/" 2>/dev/null || true
+          # Walk the dependency tree and copy every non-system DLL next to the exe.
+          ldd build/cardputer-emu.exe | awk '/mingw64/ {print $3}' | while read -r dll; do
+            cp "$dll" "$DIST/"
+          done
+          # Second pass for transitive deps of the copied DLLs.
+          for dll in "$DIST"/*.dll; do
+            ldd "$dll" 2>/dev/null | awk '/mingw64/ {print $3}' | while read -r d; do
+              [ -f "$DIST/$(basename "$d")" ] || cp "$d" "$DIST/"
+            done
+          done
+      - name: Package
+        run: |
+          cd dist && zip -rq ../M5CardputerZero-Emulator-Windows-x64.zip M5CardputerZero-Emulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-windows-x64
+          path: M5CardputerZero-Emulator-Windows-x64.zip
 
-  # ── Linux ───────────────────────────────────────────────────
+  # ── Linux x64 ───────────────────────────────────────────────────────────────
   linux:
-    runs-on: ubuntu-latest
+    name: linux-x64
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsdl2-dev libsdl2-image-dev libfreetype-dev libinput-dev libxkbcommon-dev pkg-config
-    - name: Build
-      run: |
-        mkdir build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
-        make -j$(nproc)
-    - name: Package
-      run: |
-        mkdir -p dist/M5CardputerZero-Emulator
-        cp build/cardputer-emu dist/M5CardputerZero-Emulator/
-        cp -r build/apps dist/M5CardputerZero-Emulator/
-        cp -r build/assets dist/M5CardputerZero-Emulator/
-        cp -r build/share dist/M5CardputerZero-Emulator/
-        cd dist && tar czf ../M5CardputerZero-Emulator-Linux.tar.gz M5CardputerZero-Emulator
-    - uses: actions/upload-artifact@v4
-      with:
-        name: emulator-linux
-        path: M5CardputerZero-Emulator-Linux.tar.gz
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libsdl2-dev libsdl2-image-dev libfreetype-dev \
+            libasound2-dev libinput-dev libxkbcommon-dev pkg-config
+      - name: Build
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+      - name: Package
+        run: |
+          mkdir -p dist/M5CardputerZero-Emulator
+          cp build/cardputer-emu dist/M5CardputerZero-Emulator/
+          cp -r build/apps dist/M5CardputerZero-Emulator/
+          cp -r build/assets dist/M5CardputerZero-Emulator/
+          cp -r build/share dist/M5CardputerZero-Emulator/
+          cd dist && tar czf ../M5CardputerZero-Emulator-Linux-x64.tar.gz M5CardputerZero-Emulator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-linux-x64
+          path: M5CardputerZero-Emulator-Linux-x64.tar.gz
 
-  # ── Web (Emscripten/WASM) ───────────────────────────────────
+  # ── Web (Emscripten/WASM) ───────────────────────────────────────────────────
   web:
-    runs-on: ubuntu-latest
+    name: web-wasm
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Setup Emscripten
-      uses: mymindstorm/setup-emsdk@v14
-      with:
-        version: 3.1.73
-    - name: Build
-      run: |
-        mkdir build-web && cd build-web
-        emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
-        emmake make -j$(nproc)
-    - name: Package
-      run: |
-        # Standalone emulator
-        mkdir -p dist-web
-        cp build-web/index.html dist-web/
-        cp build-web/index.js dist-web/
-        cp build-web/index.wasm dist-web/
-        cp build-web/index.data dist-web/
-        cd dist-web && zip -r ../M5CardputerZero-Emulator-Web.zip .
-        cd ..
-        # Playground (embeds emulator in iframe)
-        mkdir -p dist-playground/emulator
-        cp web-playground/index.html dist-playground/
-        cp build-web/index.html dist-playground/emulator/
-        cp build-web/index.js dist-playground/emulator/
-        cp build-web/index.wasm dist-playground/emulator/
-        cp build-web/index.data dist-playground/emulator/
-        cd dist-playground && zip -r ../M5CardputerZero-Playground.zip .
-    - uses: actions/upload-artifact@v4
-      with:
-        name: emulator-web
-        path: M5CardputerZero-Emulator-Web.zip
-    - uses: actions/upload-artifact@v4
-      with:
-        name: playground
-        path: M5CardputerZero-Playground.zip
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.73
+      - name: Build
+        run: |
+          mkdir build-web && cd build-web
+          emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
+          emmake make -j$(nproc)
+      - name: Package
+        run: |
+          mkdir -p dist-web
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data dist-web/
+          (cd dist-web && zip -rq ../M5CardputerZero-Emulator-Web.zip .)
+          mkdir -p dist-playground/emulator
+          cp web-playground/index.html dist-playground/
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data dist-playground/emulator/
+          (cd dist-playground && zip -rq ../M5CardputerZero-Playground.zip .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-web
+          path: M5CardputerZero-Emulator-Web.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playground
+          path: M5CardputerZero-Playground.zip
 
-  # ── Pre-release (runs after all 4 builds succeed) ───────────
+  # ── Pre-release (after every native + web build is green) ───────────────────
   release:
-    needs: [macos, windows, linux, web]
-    runs-on: ubuntu-latest
+    needs: [macos, macos-universal, windows, linux, web]
+    runs-on: ubuntu-22.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          TAG="dev-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}"
+          echo "Tag: $TAG"
+          gh release create "$TAG" \
+            --title "Dev Build $(date -u +%Y-%m-%d) (${GITHUB_SHA:0:7})" \
+            --notes "Automated pre-release from commit ${GITHUB_SHA:0:7}
 
-    - uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-
-    - name: Create pre-release
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        TAG="dev-$(date -u +%Y%m%d-%H%M%S)-$(echo $GITHUB_SHA | head -c 7)"
-        echo "Tag: $TAG"
-
-        # Delete previous dev release if exists
-        gh release delete dev-latest --yes 2>/dev/null || true
-        git push origin :refs/tags/dev-latest 2>/dev/null || true
-
-        # Create new pre-release
-        gh release create "$TAG" \
-          --title "Dev Build $(date -u +%Y-%m-%d) (${GITHUB_SHA:0:7})" \
-          --notes "Automated pre-release from commit ${GITHUB_SHA:0:7}
-
-        **Downloads:**
-        - macOS (arm64): \`M5CardputerZero-Emulator-macOS.tar.gz\`
-        - Linux (x86_64): \`M5CardputerZero-Emulator-Linux.tar.gz\`
-        - Windows (x64, MinGW): \`M5CardputerZero-Emulator-Windows.tar.gz\`
-        - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
-
-        - **Playground** (hosted): \`M5CardputerZero-Playground.zip\` — unzip and open index.html
-
-        _Windows build includes UserDemo only (APPLaunch requires Unix APIs)._" \
-          --prerelease \
-          artifacts/emulator-macos/M5CardputerZero-Emulator-macOS.tar.gz \
-          artifacts/emulator-linux/M5CardputerZero-Emulator-Linux.tar.gz \
-          artifacts/emulator-windows/M5CardputerZero-Emulator-Windows.tar.gz \
-          artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip \
-          artifacts/playground/M5CardputerZero-Playground.zip
+          **Downloads:**
+          - macOS arm64: \`M5CardputerZero-Emulator-macOS-arm64.tar.gz\`
+          - macOS x64: \`M5CardputerZero-Emulator-macOS-x64.tar.gz\`
+          - macOS Universal: \`M5CardputerZero-Emulator-macOS-universal.tar.gz\`
+          - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
+          - Windows x64 (MinGW): \`M5CardputerZero-Emulator-Windows-x64.zip\`
+          - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
+          - Playground (hosted): \`M5CardputerZero-Playground.zip\`" \
+            --prerelease \
+            artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.tar.gz \
+            artifacts/emulator-macos-x64/M5CardputerZero-Emulator-macOS-x64.tar.gz \
+            artifacts/emulator-macos-universal/M5CardputerZero-Emulator-macOS-universal.tar.gz \
+            artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
+            artifacts/emulator-windows-x64/M5CardputerZero-Emulator-Windows-x64.zip \
+            artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip \
+            artifacts/playground/M5CardputerZero-Playground.zip

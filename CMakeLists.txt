@@ -8,8 +8,15 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Paths
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/M5CardputerZero-Launcher)
-set(APPLAUNCH  ${VENDOR_DIR}/projects/APPLaunch/main)
-set(USERDEMO   ${VENDOR_DIR}/projects/UserDemo/main)
+
+# Source-of-truth for which Launcher files / paths the emulator pulls in.
+# Edit cmake/launcher_sources.cmake when the upstream submodule reshuffles things.
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+# Apply temporary patches against the vendor submodule. Each patch links to
+# its tracking PR; entries are removed when upstream merges.
+include(patches/apply_vendor_workarounds)
+include(launcher_sources)
+include(third_party)
 
 # ---------------------------------------------------------------------------
 # SDL2 + Freetype (skip for Emscripten — uses its own ports)
@@ -112,14 +119,9 @@ if(NOT EMSCRIPTEN)
 
 option(EMU_SKIP_APPLAUNCH "Skip APPLaunch (Unix-only deps)" OFF)
 
-# APPLaunch source files (used by both shared lib and Windows static link)
-file(GLOB_RECURSE APPLAUNCH_UI_C   ${APPLAUNCH}/ui/*.c)
-file(GLOB_RECURSE APPLAUNCH_UI_CPP ${APPLAUNCH}/ui/*.cpp)
-file(GLOB         APPLAUNCH_KBD    ${APPLAUNCH}/src/keyboard_input.c)
-
-# HAL platform sources (SDL for emulator builds)
-file(GLOB APPLAUNCH_HAL_SDL_C   ${APPLAUNCH}/hal/sdl/*.c)
-file(GLOB APPLAUNCH_HAL_SDL_CPP ${APPLAUNCH}/hal/sdl/*.cpp)
+# APPLaunch source files come from cmake/launcher_sources.cmake (already included above):
+#   APPLAUNCH_UI_C / APPLAUNCH_UI_CPP / APPLAUNCH_KBD
+#   APPLAUNCH_HAL_SDL_C / APPLAUNCH_HAL_SDL_CPP
 
 # ---------------------------------------------------------------------------
 # APP: APPLaunch shared lib (Unix only — Windows statically links into exe)
@@ -141,11 +143,9 @@ target_include_directories(APPLaunch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/lib
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-    ${APPLAUNCH}/ui
-    ${APPLAUNCH}/include
-    ${APPLAUNCH}
-    ${APPLAUNCH}/hal
+    ${APPLAUNCH_INCLUDES}
 )
+target_link_libraries(APPLaunch PRIVATE emu::launcher_apply)
 target_compile_definitions(APPLaunch PRIVATE HAL_PLATFORM_SDL=1)
 if(WIN32)
     target_compile_options(APPLaunch PRIVATE
@@ -169,16 +169,13 @@ endif() # NOT EMU_SKIP_APPLAUNCH
 
 # ---------------------------------------------------------------------------
 # APP: UserDemo.dylib
+# (USERDEMO_UI_C / USERDEMO_INCLUDES come from cmake/launcher_sources.cmake)
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USERDEMO_UI_C ${USERDEMO}/ui/*.c)
-
 add_library(UserDemo SHARED ${USERDEMO_UI_C})
 target_include_directories(UserDemo PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/lib
-    ${USERDEMO}/ui
-    ${USERDEMO}/include
-    ${USERDEMO}
+    ${USERDEMO_INCLUDES}
 )
 if(MSVC)
     target_compile_options(UserDemo PRIVATE /FI${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat.h)
@@ -205,7 +202,8 @@ if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
     target_include_directories(cardputer-emu PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src/compat  # win32_stubs.h, sys/queue.h
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-        ${APPLAUNCH}/ui ${APPLAUNCH}/include ${APPLAUNCH})
+        ${APPLAUNCH_INCLUDES})
+    target_link_libraries(cardputer-emu PRIVATE emu::launcher_apply)
     if(WIN32)
         target_compile_options(cardputer-emu PRIVATE
             "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat_win.h"
@@ -217,8 +215,7 @@ if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
 elseif(WIN32)
     # Fallback: UserDemo only
     add_executable(cardputer-emu src/main.cpp src/device_skin.cpp ${USERDEMO_UI_C})
-    target_include_directories(cardputer-emu PRIVATE
-        ${USERDEMO}/ui ${USERDEMO}/include ${USERDEMO})
+    target_include_directories(cardputer-emu PRIVATE ${USERDEMO_INCLUDES})
     target_compile_definitions(cardputer-emu PRIVATE EMU_STATIC_APP=1)
 else()
     add_executable(cardputer-emu src/main.cpp src/device_skin.cpp)
@@ -310,7 +307,7 @@ add_custom_command(TARGET cardputer-emu POST_BUILD
         $<TARGET_FILE_DIR:cardputer-emu>/apps/
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:cardputer-emu>/share/images
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${APPLAUNCH}/ui/images
+        ${APPLAUNCH_IMAGES_DIR}
         $<TARGET_FILE_DIR:cardputer-emu>/share/images
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:cardputer-emu>/assets
     COMMAND ${CMAKE_COMMAND} -E copy
@@ -332,16 +329,13 @@ endif() # NOT EMSCRIPTEN — end native targets
 # ---------------------------------------------------------------------------
 if(EMSCRIPTEN)
     # App sources statically linked (no dlopen in wasm)
-    file(GLOB_RECURSE APPLAUNCH_UI_C_WEB   ${APPLAUNCH}/ui/*.c)
-    file(GLOB_RECURSE APPLAUNCH_UI_CPP_WEB ${APPLAUNCH}/ui/*.cpp)
-    file(GLOB         APPLAUNCH_KBD_WEB    ${APPLAUNCH}/src/keyboard_input.c)
-
+    # Reuse APPLAUNCH_UI_C / APPLAUNCH_UI_CPP / APPLAUNCH_KBD from launcher_sources.cmake
     add_executable(cardputer-emu-web
         src/main_web.cpp
         src/device_skin.cpp
-        ${APPLAUNCH_UI_C_WEB}
-        ${APPLAUNCH_UI_CPP_WEB}
-        ${APPLAUNCH_KBD_WEB}
+        ${APPLAUNCH_UI_C}
+        ${APPLAUNCH_UI_CPP}
+        ${APPLAUNCH_KBD}
     )
 
     target_include_directories(cardputer-emu-web PRIVATE
@@ -350,10 +344,9 @@ if(EMSCRIPTEN)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-        ${APPLAUNCH}/ui
-        ${APPLAUNCH}/include
-        ${APPLAUNCH}
+        ${APPLAUNCH_INCLUDES}
     )
+    target_link_libraries(cardputer-emu-web PRIVATE emu::launcher_apply)
 
     target_compile_options(cardputer-emu-web PRIVATE
         -include ${CMAKE_CURRENT_SOURCE_DIR}/src/emu_compat.h
@@ -373,7 +366,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sINITIAL_MEMORY=67108864
         "--preload-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/device_skin.png@/assets/device_skin.png"
-        "--preload-file=${APPLAUNCH}/ui/images@/share/images"
+        "--preload-file=${APPLAUNCH_IMAGES_DIR}@/share/images"
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
     )
 
