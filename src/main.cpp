@@ -292,10 +292,14 @@ static void resolve_exe_dir()
         snprintf(g_exe_dir, sizeof(g_exe_dir), "%s", path);
     }
 #endif
-    // Also chdir there so any other relative-path consumers keep working.
+    // Also cd there so any other relative-path consumers keep working.
+#ifdef _WIN32
+    SetCurrentDirectoryA(g_exe_dir);
+#else
     if (chdir(g_exe_dir) != 0) {
         fprintf(stderr, "[EMU] warning: chdir(%s) failed\n", g_exe_dir);
     }
+#endif
 }
 
 // Build an absolute path to a bundled resource (e.g. "assets/device_skin.png").
