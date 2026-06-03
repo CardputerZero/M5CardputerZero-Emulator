@@ -257,29 +257,59 @@ extern "C" {
 }
 #endif
 
-// Set working directory to the exe's directory so relative paths work
-static void set_exe_dir()
+// Directory containing the executable (no trailing slash). Resolved once at
+// startup. We resolve assets against this rather than relying on the current
+// working directory — a downloaded build is launched from Finder / an
+// arbitrary cwd, and linking SDL2main means we can't assume cwd is the bundle.
+static char g_exe_dir[2048] = ".";
+
+static void resolve_exe_dir()
 {
 #ifdef _WIN32
     char path[MAX_PATH];
-    GetModuleFileNameA(NULL, path, MAX_PATH);
-    char *last = strrchr(path, '\\');
-    if (last) { *last = '\0'; SetCurrentDirectoryA(path); }
+    if (GetModuleFileNameA(NULL, path, MAX_PATH) > 0) {
+        char *last = strrchr(path, '\\');
+        if (last) *last = '\0';
+        snprintf(g_exe_dir, sizeof(g_exe_dir), "%s", path);
+    }
 #elif defined(__APPLE__)
-    // macOS: SDL handles this, but just in case
-    char path[1024];
+    char path[2048];
     uint32_t size = sizeof(path);
     if (_NSGetExecutablePath(path, &size) == 0) {
+        char real[2048];
+        if (realpath(path, real)) snprintf(path, sizeof(path), "%s", real);
         char *last = strrchr(path, '/');
-        if (last) { *last = '\0'; chdir(path); }
+        if (last) *last = '\0';
+        snprintf(g_exe_dir, sizeof(g_exe_dir), "%s", path);
+    }
+#else
+    char path[2048];
+    ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (n > 0) {
+        path[n] = '\0';
+        char *last = strrchr(path, '/');
+        if (last) *last = '\0';
+        snprintf(g_exe_dir, sizeof(g_exe_dir), "%s", path);
     }
 #endif
-    // Linux: usually launched from the right dir, or use /proc/self/exe
+    // Also chdir there so any other relative-path consumers keep working.
+    if (chdir(g_exe_dir) != 0) {
+        fprintf(stderr, "[EMU] warning: chdir(%s) failed\n", g_exe_dir);
+    }
+}
+
+// Build an absolute path to a bundled resource (e.g. "assets/device_skin.png").
+// Returns a pointer to a static buffer — copy if you need to keep it.
+static const char *res_path(const char *rel)
+{
+    static char buf[4096];
+    snprintf(buf, sizeof(buf), "%s/%s", g_exe_dir, rel);
+    return buf;
 }
 
 int main(int argc, char *argv[])
 {
-    set_exe_dir();
+    resolve_exe_dir();
 
 #ifdef EMU_STATIC_APP
     // Windows: app statically linked, no dlopen
@@ -318,8 +348,12 @@ int main(int argc, char *argv[])
     printf("[EMU] Window: %dx%d  Renderer: %dx%d  DPI scale: %.1f\n",
            win_w, win_h, render_w, render_h, g_dpi_scale);
 
-    SDL_Surface *surf = load_png_as_sdl_surface("assets/device_skin.png");
-    if (!surf) { fprintf(stderr, "skin: failed to load assets/device_skin.png\n"); return 1; }
+    // lv_init() must run before load_png_as_sdl_surface(): LVGL's build of
+    // lodepng allocates through lv_malloc, which needs the LVGL heap up.
+    lv_init();
+
+    SDL_Surface *surf = load_png_as_sdl_surface(res_path("assets/device_skin.png"));
+    if (!surf) { fprintf(stderr, "skin: failed to load %s\n", res_path("assets/device_skin.png")); return 1; }
     g_skin_tex = SDL_CreateTextureFromSurface(g_ren, surf);
     SDL_SetTextureBlendMode(g_skin_tex, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(surf);
@@ -327,8 +361,6 @@ int main(int argc, char *argv[])
     g_lcd_tex = SDL_CreateTexture(g_ren, SDL_PIXELFORMAT_ARGB8888,
         SDL_TEXTUREACCESS_STREAMING, LCD_W, LCD_H);
     g_lcd_buf = (uint32_t *)calloc(LCD_W * LCD_H, sizeof(uint32_t));
-
-    lv_init();
     static uint8_t draw_buf[LCD_W * LCD_H * 2];
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     lv_display_set_flush_cb(disp, flush_cb);
@@ -342,11 +374,24 @@ int main(int argc, char *argv[])
     g_kbd_handler = lv_sdl_keyboard_handler;
     printf("[EMU] App keyboard driver (static)\n");
     printf("[EMU] Loaded: %s\n", app_path);
+    // APPLaunch resolves its assets (icons/fonts/audio) relative to a base dir
+    // passed via hal_paths_init(). Point it at the executable directory.
+    {
+        extern void hal_paths_init(const char *);
+        hal_paths_init(g_exe_dir);
+    }
     ui_init();
 #else
     void *app = emu_dlopen(app_path);
     if (!app) { fprintf(stderr, "[EMU] dlopen: %s\n", emu_dlerror()); return 1; }
     printf("[EMU] Loaded: %s\n", app_path);
+
+    // Initialize APPLaunch's asset paths relative to the executable dir before
+    // ui_init() runs, otherwise it falls back to "./APPLaunch/share/..." which
+    // only works when launched from the bundle root.
+    typedef void (*hal_paths_init_fn)(const char *);
+    hal_paths_init_fn hal_paths_init = (hal_paths_init_fn)emu_dlsym(app, "hal_paths_init");
+    if (hal_paths_init) hal_paths_init(g_exe_dir);
 
     auto kbd_create = (sdl_kbd_create_fn)emu_dlsym(app, "lv_sdl_keyboard_create");
     g_kbd_handler = (sdl_kbd_handler_fn)emu_dlsym(app, "lv_sdl_keyboard_handler");

@@ -65,20 +65,10 @@ jobs:
           # Strip the quarantine xattr so first launch is prompt-free, then zip.
           xattr -cr dist/M5CardputerZero-Emulator
           (cd dist && zip -ry ../M5CardputerZero-Emulator-macOS-arm64.zip M5CardputerZero-Emulator)
-      - name: Package — DMG
-        run: |
-          set -euxo pipefail
-          # Plain folder-style DMG: drag the whole folder out and run.
-          hdiutil create -volname "M5CardputerZero Emulator" \
-            -srcfolder dist/M5CardputerZero-Emulator \
-            -ov -format UDZO \
-            M5CardputerZero-Emulator-macOS-arm64.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: emulator-macos-arm64
-          path: |
-            M5CardputerZero-Emulator-macOS-arm64.zip
-            M5CardputerZero-Emulator-macOS-arm64.dmg
+          path: M5CardputerZero-Emulator-macOS-arm64.zip
 
   # ── Windows x64 (MinGW-w64) ────────────────────────────────────────────────
   windows:
@@ -227,16 +217,14 @@ jobs:
             --notes "Automated pre-release from commit ${GITHUB_SHA:0:7}
 
           **Downloads:**
-          - macOS arm64 (DMG): \`M5CardputerZero-Emulator-macOS-arm64.dmg\`
-          - macOS arm64 (green zip): \`M5CardputerZero-Emulator-macOS-arm64.zip\`
+          - macOS arm64: \`M5CardputerZero-Emulator-macOS-arm64.zip\`
           - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
           - Windows x64 (MinGW): \`M5CardputerZero-Emulator-Windows-x64.zip\`
           - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
           - Playground (hosted): \`M5CardputerZero-Playground.zip\`
 
-          _macOS builds are statically linked and ad-hoc signed — they open without Gatekeeper prompts._" \
+          _macOS build is statically linked and ad-hoc signed — unzip and run, no Gatekeeper prompts._" \
             --prerelease \
-            artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.dmg \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.zip \
             artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
             artifacts/emulator-windows-x64/M5CardputerZero-Emulator-Windows-x64.zip \

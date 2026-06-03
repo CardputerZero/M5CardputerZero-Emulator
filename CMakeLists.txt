@@ -223,7 +223,12 @@ elseif(WIN32)
     target_include_directories(cardputer-emu PRIVATE ${USERDEMO_INCLUDES})
     target_compile_definitions(cardputer-emu PRIVATE EMU_STATIC_APP=1)
 else()
-    add_executable(cardputer-emu src/main.cpp src/device_skin.cpp src/png_to_sdl_surface.c)
+    # macOS / Linux: thin shell that dlopen's the app. It must EXPORT the
+    # symbols the app dylib expects to resolve from the host process —
+    # LV_EVENT_BATTERY etc. — so emu_launcher_stubs.c is linked here too.
+    add_executable(cardputer-emu
+        src/main.cpp src/device_skin.cpp src/png_to_sdl_surface.c
+        src/emu_launcher_stubs.c)
 endif()
 add_dependencies(cardputer-emu lvgl lvgl_thorvg)
 # Export all symbols so dlopen'd apps can resolve LVGL functions
@@ -343,10 +348,11 @@ add_custom_command(TARGET cardputer-emu POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         $<TARGET_FILE:UserDemo>
         $<TARGET_FILE_DIR:cardputer-emu>/apps/
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:cardputer-emu>/share/images
+    # APPLaunch resolves assets at <exe_dir>/APPLaunch/share/{images,font,audio}
+    # (see hal_paths_init). Ship the launcher's whole share/ tree there.
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${APPLAUNCH_IMAGES_DIR}
-        $<TARGET_FILE_DIR:cardputer-emu>/share/images
+        ${APPLAUNCH_SHARE_DIR}
+        $<TARGET_FILE_DIR:cardputer-emu>/APPLaunch/share
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:cardputer-emu>/assets
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/assets/device_skin.png

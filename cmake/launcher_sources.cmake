@@ -86,8 +86,20 @@ set(USERDEMO_INCLUDES
 )
 
 # ── runtime asset directories ────────────────────────────────────────────────
-# Where APPLaunch expects to find PNG/font assets at runtime. Path has moved
-# between launcher revs (ui/images → APPLaunch/share/images), so probe for it.
+# APPLaunch's hal_paths_init(exe_dir) resolves assets as:
+#   <exe_dir>/APPLaunch/share/{images,font,audio}
+# So we ship the launcher's whole share/ tree under APPLaunch/share/ in the
+# bundle. APPLAUNCH_SHARE_DIR points at the source share/ dir to copy from.
+set(APPLAUNCH_SHARE_DIR "")
+foreach(_candidate
+    ${VENDOR_DIR}/projects/APPLaunch/APPLaunch/share)
+    if(IS_DIRECTORY "${_candidate}")
+        set(APPLAUNCH_SHARE_DIR "${_candidate}")
+        break()
+    endif()
+endforeach()
+
+# Legacy single-images-dir probe (still used by the web --preload-file path).
 set(APPLAUNCH_IMAGES_DIR "")
 foreach(_candidate
     ${VENDOR_DIR}/projects/APPLaunch/APPLaunch/share/images
