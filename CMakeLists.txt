@@ -424,4 +424,12 @@ if(EMSCRIPTEN)
         SUFFIX ".html"
         OUTPUT_NAME "index"
     )
+
+    # Ship the COOP/COEP service worker next to index.html (shell.html loads it).
+    add_custom_command(TARGET cardputer-emu-web POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_CURRENT_SOURCE_DIR}/web/coi-serviceworker.js
+            $<TARGET_FILE_DIR:cardputer-emu-web>/coi-serviceworker.js
+        COMMENT "Copying coi-serviceworker.js"
+    )
 endif()

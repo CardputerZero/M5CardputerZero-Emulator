@@ -167,11 +167,11 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist-web
-          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data dist-web/
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data build-web/coi-serviceworker.js dist-web/
           (cd dist-web && zip -rq ../M5CardputerZero-Emulator-Web.zip .)
           mkdir -p dist-playground/emulator
           cp web-playground/index.html dist-playground/
-          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data dist-playground/emulator/
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data build-web/coi-serviceworker.js dist-playground/emulator/
           (cd dist-playground && zip -rq ../M5CardputerZero-Playground.zip .)
       - uses: actions/upload-artifact@v4
         with:

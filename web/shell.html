@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Inject COOP/COEP so SharedArrayBuffer (pthreads) works on GitHub Pages,
+     which doesn't send those headers. Must load before the wasm. -->
+<script src="coi-serviceworker.js"></script>
 <title>M5CardputerZero Emulator</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
