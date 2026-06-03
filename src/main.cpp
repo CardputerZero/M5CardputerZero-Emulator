@@ -20,6 +20,10 @@ static const char *emu_dlerror() { static char b[256]; FormatMessageA(FORMAT_MES
 #define emu_dlerror()   dlerror()
 #endif
 
+// APPLaunch's path HAL (hal_paths_sdl.c, C linkage). Used by the Windows
+// static-link path; on Unix it's resolved via dlsym instead.
+extern "C" void hal_paths_init(const char *);
+
 // ── Layout from M5CardputerEmu.png (1280x840 RGBA) ─────────────
 static constexpr int SKIN_W = 1280;
 static constexpr int SKIN_H = 840;
@@ -407,11 +411,8 @@ int main(int argc, char *argv[])
     printf("[EMU] App keyboard driver (static)\n");
     printf("[EMU] Loaded: %s\n", app_path);
     // APPLaunch resolves its assets (icons/fonts/audio) relative to a base dir
-    // passed via hal_paths_init(). hal_paths_init is C linkage (hal_paths_sdl.c).
-    {
-        extern "C" void hal_paths_init(const char *);
-        hal_paths_init(g_res_dir);
-    }
+    // passed via hal_paths_init() (declared at file scope below, C linkage).
+    hal_paths_init(g_res_dir);
     ui_init();
 #else
     void *app = emu_dlopen(app_path);
@@ -422,8 +423,8 @@ int main(int argc, char *argv[])
     // ui_init() runs, otherwise it falls back to "./APPLaunch/share/..." which
     // only works when launched from the bundle root.
     typedef void (*hal_paths_init_fn)(const char *);
-    hal_paths_init_fn hal_paths_init = (hal_paths_init_fn)emu_dlsym(app, "hal_paths_init");
-    if (hal_paths_init) hal_paths_init(g_res_dir);
+    hal_paths_init_fn hal_paths_init_p = (hal_paths_init_fn)emu_dlsym(app, "hal_paths_init");
+    if (hal_paths_init_p) hal_paths_init_p(g_res_dir);
 
     auto kbd_create = (sdl_kbd_create_fn)emu_dlsym(app, "lv_sdl_keyboard_create");
     g_kbd_handler = (sdl_kbd_handler_fn)emu_dlsym(app, "lv_sdl_keyboard_handler");
