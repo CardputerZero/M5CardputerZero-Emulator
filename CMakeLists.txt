@@ -413,7 +413,10 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sINITIAL_MEMORY=67108864
         "--preload-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/device_skin.png@/assets/device_skin.png"
-        "--preload-file=${APPLAUNCH_IMAGES_DIR}@/share/images"
+        # APPLaunch's hal_paths default to "./APPLaunch/share/...", and the wasm
+        # cwd is "/", so preload the whole share tree (images + font + audio) at
+        # /APPLaunch/share to match. Fonts are needed for CJK freetype text.
+        "--preload-file=${APPLAUNCH_SHARE_DIR}@/APPLaunch/share"
         --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
     )
 
