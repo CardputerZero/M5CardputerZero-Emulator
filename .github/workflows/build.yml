@@ -43,7 +43,7 @@ jobs:
           cp build/cardputer-emu "$DIST/"
           cp -r build/apps "$DIST/"
           cp -r build/assets "$DIST/"
-          cp -r build/share "$DIST/"
+          cp -r build/APPLaunch "$DIST/"
 
           # Sanity: the executable must carry no third-party dylib references.
           echo "== otool -L cardputer-emu =="
@@ -105,9 +105,9 @@ jobs:
           DIST=dist/M5CardputerZero-Emulator
           mkdir -p "$DIST"
           cp build/cardputer-emu.exe "$DIST/"
-          cp -r build/apps   "$DIST/" 2>/dev/null || true
-          cp -r build/assets "$DIST/" 2>/dev/null || true
-          cp -r build/share  "$DIST/" 2>/dev/null || true
+          cp -r build/apps      "$DIST/" 2>/dev/null || true
+          cp -r build/assets    "$DIST/" 2>/dev/null || true
+          cp -r build/APPLaunch "$DIST/" 2>/dev/null || true
           # Walk the dependency tree and copy every non-system DLL next to the exe.
           ldd build/cardputer-emu.exe | awk '/mingw64/ {print $3}' | while read -r dll; do
             cp "$dll" "$DIST/"
@@ -151,7 +151,7 @@ jobs:
           cp build/cardputer-emu dist/M5CardputerZero-Emulator/
           cp -r build/apps dist/M5CardputerZero-Emulator/
           cp -r build/assets dist/M5CardputerZero-Emulator/
-          cp -r build/share dist/M5CardputerZero-Emulator/
+          cp -r build/APPLaunch dist/M5CardputerZero-Emulator/
           cd dist && tar czf ../M5CardputerZero-Emulator-Linux-x64.tar.gz M5CardputerZero-Emulator
       - uses: actions/upload-artifact@v4
         with:
