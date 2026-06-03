@@ -59,62 +59,6 @@ jobs:
             M5CardputerZero-Emulator-macOS-arm64.zip
             M5CardputerZero-Emulator-macOS-arm64.dmg
 
-  # ── Windows x64 (MinGW-w64) ────────────────────────────────────────────────
-  windows:
-    name: windows-x64
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-SDL2
-            mingw-w64-x86_64-SDL2_image
-            mingw-w64-x86_64-freetype
-            mingw-w64-x86_64-winpthreads-git
-            make
-            git
-            zip
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      - name: Build
-        run: |
-          mkdir build && cd build
-          cmake .. -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release
-          make -j$(nproc)
-      - name: Bundle DLLs
-        run: |
-          set -euxo pipefail
-          DIST=dist/M5CardputerZero-Emulator
-          mkdir -p "$DIST"
-          cp build/cardputer-emu.exe "$DIST/"
-          cp -r build/apps      "$DIST/" 2>/dev/null || true
-          cp -r build/assets    "$DIST/" 2>/dev/null || true
-          cp -r build/APPLaunch "$DIST/" 2>/dev/null || true
-          # Walk the dependency tree and copy every non-system DLL next to the exe.
-          ldd build/cardputer-emu.exe | awk '/mingw64/ {print $3}' | while read -r dll; do
-            cp "$dll" "$DIST/"
-          done
-          # Second pass for transitive deps of the copied DLLs.
-          for dll in "$DIST"/*.dll; do
-            ldd "$dll" 2>/dev/null | awk '/mingw64/ {print $3}' | while read -r d; do
-              [ -f "$DIST/$(basename "$d")" ] || cp "$d" "$DIST/"
-            done
-          done
-      - name: Package
-        run: |
-          cd dist && zip -rq ../M5CardputerZero-Emulator-Windows-x64.zip M5CardputerZero-Emulator
-      - uses: actions/upload-artifact@v4
-        with:
-          name: emulator-windows-x64
-          path: M5CardputerZero-Emulator-Windows-x64.zip
-
   # ── Linux x64 ───────────────────────────────────────────────────────────────
   linux:
     name: linux-x64
@@ -184,7 +128,7 @@ jobs:
 
   # ── Pre-release (after every native + web build is green) ───────────────────
   release:
-    needs: [macos-arm64, windows, linux, web]
+    needs: [macos-arm64, linux, web]
     runs-on: ubuntu-22.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
@@ -209,7 +153,6 @@ jobs:
           - macOS arm64 (DMG): \`M5CardputerZero-Emulator-macOS-arm64.dmg\`
           - macOS arm64 (.app zip): \`M5CardputerZero-Emulator-macOS-arm64.zip\`
           - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
-          - Windows x64 (MinGW): \`M5CardputerZero-Emulator-Windows-x64.zip\`
           - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
           - Playground (hosted): \`M5CardputerZero-Playground.zip\`
 
@@ -218,6 +161,5 @@ jobs:
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.dmg \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.zip \
             artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
-            artifacts/emulator-windows-x64/M5CardputerZero-Emulator-Windows-x64.zip \
             artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip \
             artifacts/playground/M5CardputerZero-Playground.zip
