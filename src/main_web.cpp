@@ -6,7 +6,7 @@
 
 #include "lvgl/lvgl.h"
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
+#include "png_to_sdl_surface.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -207,7 +207,6 @@ int main(int, char*[]) {
     printf("M5CardputerZero Emulator (Web)\n");
 
     SDL_Init(SDL_INIT_VIDEO);
-    IMG_Init(IMG_INIT_PNG);
 
     // Use skin native resolution for crisp rendering
     g_win=SDL_CreateWindow("M5CardputerZero",
@@ -216,8 +215,8 @@ int main(int, char*[]) {
     g_ren=SDL_CreateRenderer(g_win,-1,SDL_RENDERER_ACCELERATED);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
-    SDL_Surface *surf=IMG_Load("assets/device_skin.png");
-    if(!surf){printf("skin load failed: %s\n",IMG_GetError());return 1;}
+    SDL_Surface *surf=load_png_as_sdl_surface("assets/device_skin.png");
+    if(!surf){printf("skin load failed\n");return 1;}
     g_skin_tex=SDL_CreateTextureFromSurface(g_ren,surf);
     SDL_SetTextureBlendMode(g_skin_tex,SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(surf);
