@@ -1,6 +1,6 @@
 #include "lvgl/lvgl.h"
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
+#include "png_to_sdl_surface.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -302,7 +302,6 @@ int main(int argc, char *argv[])
     printf("========================================\n");
 
     SDL_Init(SDL_INIT_VIDEO);
-    IMG_Init(IMG_INIT_PNG);
 
     int win_w = (int)(SKIN_W * SCALE), win_h = (int)(SKIN_H * SCALE);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
@@ -319,8 +318,8 @@ int main(int argc, char *argv[])
     printf("[EMU] Window: %dx%d  Renderer: %dx%d  DPI scale: %.1f\n",
            win_w, win_h, render_w, render_h, g_dpi_scale);
 
-    SDL_Surface *surf = IMG_Load("assets/device_skin.png");
-    if (!surf) { fprintf(stderr, "skin: %s\n", IMG_GetError()); return 1; }
+    SDL_Surface *surf = load_png_as_sdl_surface("assets/device_skin.png");
+    if (!surf) { fprintf(stderr, "skin: failed to load assets/device_skin.png\n"); return 1; }
     g_skin_tex = SDL_CreateTextureFromSurface(g_ren, surf);
     SDL_SetTextureBlendMode(g_skin_tex, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(surf);
@@ -442,7 +441,6 @@ done:
     SDL_DestroyTexture(g_skin_tex);
     SDL_DestroyRenderer(g_ren);
     SDL_DestroyWindow(g_win);
-    IMG_Quit();
     SDL_Quit();
     return 0;
 }

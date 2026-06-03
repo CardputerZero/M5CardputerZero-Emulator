@@ -198,7 +198,8 @@ endif()
 if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
     # Windows: statically link APPLaunch (avoids DLL duplicate LVGL globals)
     add_executable(cardputer-emu
-        src/main.cpp src/device_skin.cpp src/emu_launcher_stubs.c
+        src/main.cpp src/device_skin.cpp
+        src/emu_launcher_stubs.c src/png_to_sdl_surface.c
         ${APPLAUNCH_UI_C} ${APPLAUNCH_UI_CPP} ${APPLAUNCH_KBD}
         ${APPLAUNCH_HAL_SDL_C} ${APPLAUNCH_HAL_SDL_CPP})
     target_include_directories(cardputer-emu PRIVATE
@@ -216,11 +217,13 @@ if(WIN32 AND NOT EMU_SKIP_APPLAUNCH)
     target_link_options(cardputer-emu PRIVATE -Wl,--allow-multiple-definition)
 elseif(WIN32)
     # Fallback: UserDemo only
-    add_executable(cardputer-emu src/main.cpp src/device_skin.cpp ${USERDEMO_UI_C})
+    add_executable(cardputer-emu
+        src/main.cpp src/device_skin.cpp src/png_to_sdl_surface.c
+        ${USERDEMO_UI_C})
     target_include_directories(cardputer-emu PRIVATE ${USERDEMO_INCLUDES})
     target_compile_definitions(cardputer-emu PRIVATE EMU_STATIC_APP=1)
 else()
-    add_executable(cardputer-emu src/main.cpp src/device_skin.cpp)
+    add_executable(cardputer-emu src/main.cpp src/device_skin.cpp src/png_to_sdl_surface.c)
 endif()
 add_dependencies(cardputer-emu lvgl lvgl_thorvg)
 # Export all symbols so dlopen'd apps can resolve LVGL functions
@@ -259,39 +262,67 @@ else()
     )
 endif()
 
-# SDL2
-if(TARGET SDL2::SDL2)
-    target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2)
-elseif(TARGET SDL2::SDL2-static)
-    target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2-static)
-else()
-    target_include_directories(cardputer-emu PRIVATE ${SDL2_INCLUDE_DIRS})
-    target_link_libraries(cardputer-emu PRIVATE ${SDL2_LIBRARIES})
-endif()
-if(TARGET SDL2::SDL2main)
-    target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2main)
-endif()
+# Note: we no longer link SDL2_image. PNG loading goes through
+# src/png_to_sdl_surface.c, which delegates to LVGL's bundled lodepng. This
+# drops 19 transitive dylibs from the macOS bundle (libavif, libjxl, libwebp,
+# libtiff, etc.) and the Gatekeeper "unable to verify" prompt that fires on
+# every one of them at first launch.
 
-# SDL2_image
-if(PkgConfig_FOUND)
-    pkg_check_modules(SDL2_IMAGE SDL2_image)
-endif()
-if(SDL2_IMAGE_FOUND)
-    target_include_directories(cardputer-emu PRIVATE ${SDL2_IMAGE_INCLUDE_DIRS})
-    target_link_libraries(cardputer-emu PRIVATE ${SDL2_IMAGE_LINK_LIBRARIES})
-    target_link_directories(cardputer-emu PRIVATE ${SDL2_IMAGE_LIBRARY_DIRS})
-else()
-    target_link_directories(cardputer-emu PRIVATE /opt/homebrew/lib)
-    target_link_libraries(cardputer-emu PRIVATE SDL2_image)
-endif()
+# ── SDL2 + Freetype linkage ──────────────────────────────────────────────────
+# On macOS we statically link SDL2/Freetype/libpng into the executable so the
+# distributed bundle carries NO third-party dylibs at all. Combined with
+# dropping SDL2_image above, the only Mach-O files we ship are cardputer-emu
+# (static, self-contained) plus our own libAPPLaunch/libUserDemo dylibs — all
+# of which get ad-hoc codesigned in CI. Result: zero Gatekeeper quarantine
+# prompts. The static .a files live next to the dylibs in Homebrew.
+option(EMU_MACOS_STATIC_DEPS "Statically link SDL2/Freetype on macOS" ON)
 
-# Freetype (needed by LVGL)
-if(FREETYPE_FOUND AND FREETYPE_LINK_LIBRARIES)
-    target_link_libraries(cardputer-emu PRIVATE ${FREETYPE_LINK_LIBRARIES})
-    target_link_directories(cardputer-emu PRIVATE ${FREETYPE_LIBRARY_DIRS})
+if(APPLE AND EMU_MACOS_STATIC_DEPS)
+    # Resolve Homebrew prefixes (arm64 default, Intel fallback).
+    foreach(_pfx /opt/homebrew /usr/local)
+        if(EXISTS "${_pfx}/opt/sdl2/lib/libSDL2.a")
+            set(_brew "${_pfx}")
+            break()
+        endif()
+    endforeach()
+    if(NOT _brew)
+        message(FATAL_ERROR "EMU_MACOS_STATIC_DEPS: libSDL2.a not found under Homebrew. "
+            "Run `brew install sdl2 freetype libpng` or set -DEMU_MACOS_STATIC_DEPS=OFF.")
+    endif()
+    set(_sdl2_a   ${_brew}/opt/sdl2/lib/libSDL2.a)
+    set(_ft_a     ${_brew}/opt/freetype/lib/libfreetype.a)
+    set(_png_a    ${_brew}/opt/libpng/lib/libpng16.a)
+    target_link_libraries(cardputer-emu PRIVATE
+        ${_sdl2_a} ${_ft_a} ${_png_a} bz2 z
+        # Frameworks required by static SDL2 (from `pkg-config --static --libs sdl2`)
+        "-framework CoreAudio" "-framework AudioToolbox"
+        "-weak_framework CoreHaptics" "-weak_framework GameController"
+        "-framework ForceFeedback" objc
+        "-framework CoreVideo" "-framework Cocoa" "-framework Carbon"
+        "-framework IOKit" "-weak_framework QuartzCore" "-weak_framework Metal"
+        "-weak_framework UniformTypeIdentifiers"
+    )
 else()
-    target_link_directories(cardputer-emu PRIVATE /opt/homebrew/lib)
-    target_link_libraries(cardputer-emu PRIVATE freetype)
+    # Dynamic linkage (Linux, Windows, or macOS with -DEMU_MACOS_STATIC_DEPS=OFF)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2)
+    elseif(TARGET SDL2::SDL2-static)
+        target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2-static)
+    else()
+        target_include_directories(cardputer-emu PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(cardputer-emu PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    if(TARGET SDL2::SDL2main)
+        target_link_libraries(cardputer-emu PRIVATE SDL2::SDL2main)
+    endif()
+    # Freetype (needed by LVGL)
+    if(FREETYPE_FOUND AND FREETYPE_LINK_LIBRARIES)
+        target_link_libraries(cardputer-emu PRIVATE ${FREETYPE_LINK_LIBRARIES})
+        target_link_directories(cardputer-emu PRIVATE ${FREETYPE_LIBRARY_DIRS})
+    else()
+        target_link_directories(cardputer-emu PRIVATE /opt/homebrew/lib)
+        target_link_libraries(cardputer-emu PRIVATE freetype)
+    endif()
 endif()
 
 # dl (for dlopen) + threads
@@ -338,6 +369,7 @@ if(EMSCRIPTEN)
         src/main_web.cpp
         src/device_skin.cpp
         src/emu_launcher_stubs.c
+        src/png_to_sdl_surface.c
         ${APPLAUNCH_UI_C}
         ${APPLAUNCH_UI_CPP}
         ${APPLAUNCH_KBD}
@@ -364,13 +396,11 @@ if(EMSCRIPTEN)
 
     target_link_libraries(cardputer-emu-web PRIVATE lvgl)
 
-    # Emscripten SDL2 + SDL2_image ports
-    target_compile_options(cardputer-emu-web PRIVATE -sUSE_SDL=2 -sUSE_SDL_IMAGE=2 -pthread)
+    # Emscripten SDL2 (PNG decoding goes through lodepng — see png_to_sdl_surface.c)
+    target_compile_options(cardputer-emu-web PRIVATE -sUSE_SDL=2 -pthread)
     target_link_options(cardputer-emu-web PRIVATE
         -sUSE_SDL=2
-        -sUSE_SDL_IMAGE=2
         -pthread -sPROXY_TO_PTHREAD=0
-        -sSDL2_IMAGE_FORMATS=["png"]
         -sALLOW_MEMORY_GROWTH=1
         -sINITIAL_MEMORY=67108864
         "--preload-file=${CMAKE_CURRENT_SOURCE_DIR}/assets/device_skin.png@/assets/device_skin.png"
