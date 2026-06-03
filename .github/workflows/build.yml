@@ -9,17 +9,16 @@ on:
 
 jobs:
   # ── macOS arm64 + x64 (matrix) ──────────────────────────────────────────────
-  macos:
-    name: macos-${{ matrix.arch }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-14
-          - arch: x64
-            runner: macos-13
-    runs-on: ${{ matrix.runner }}
+  # ── macOS arm64 ─────────────────────────────────────────────────────────────
+  # We ship arm64 only on macOS. Apple Silicon shipped in 2020; users on Intel
+  # Macs without Rosetta 2 are vanishingly rare for a hobby project. The
+  # GitHub-hosted macos-13 (Intel) free runner queue is currently 1h+, which
+  # blocked PRs for hours; building on macos-14 (arm64) keeps CI predictable.
+  # If we ever need x64, build it offline from a developer machine and attach
+  # to the release manually, or revisit the matrix.
+  macos-arm64:
+    name: macos-arm64
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
         with:
@@ -51,58 +50,14 @@ jobs:
             -x "$DIST/apps/libAPPLaunch.dylib" \
             -x "$DIST/apps/libUserDemo.dylib" \
             -d "$DIST/libs" -p "@executable_path/libs/" || \
-            echo "[warn] dylibbundler returned non-zero (continuing — dependencies may already resolve)"
+            echo "[warn] dylibbundler returned non-zero (continuing — deps may resolve already)"
       - name: Package
         run: |
-          cd dist && tar czf ../M5CardputerZero-Emulator-macOS-${{ matrix.arch }}.tar.gz M5CardputerZero-Emulator
+          cd dist && tar czf ../M5CardputerZero-Emulator-macOS-arm64.tar.gz M5CardputerZero-Emulator
       - uses: actions/upload-artifact@v4
         with:
-          name: emulator-macos-${{ matrix.arch }}
-          path: M5CardputerZero-Emulator-macOS-${{ matrix.arch }}.tar.gz
-
-  # ── macOS Universal (lipo merge of arm64 + x64) ────────────────────────────
-  macos-universal:
-    name: macos-universal
-    needs: macos
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: emulator-macos-*
-          path: artifacts
-      - name: Build universal bundle via lipo
-        run: |
-          set -euxo pipefail
-          mkdir -p arm64 x64 universal/M5CardputerZero-Emulator
-          tar xzf artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.tar.gz -C arm64
-          tar xzf artifacts/emulator-macos-x64/M5CardputerZero-Emulator-macOS-x64.tar.gz   -C x64
-
-          ARM=arm64/M5CardputerZero-Emulator
-          X64=x64/M5CardputerZero-Emulator
-          UNI=universal/M5CardputerZero-Emulator
-
-          # Mirror arm64 layout, then lipo-merge every Mach-O.
-          rsync -a "$ARM/" "$UNI/"
-          while IFS= read -r -d '' rel; do
-            file_arm="$ARM/$rel"
-            file_x64="$X64/$rel"
-            file_uni="$UNI/$rel"
-            if [ -f "$file_x64" ] && file "$file_arm" | grep -q "Mach-O"; then
-              lipo -create "$file_arm" "$file_x64" -output "$file_uni" 2>/dev/null \
-                || cp "$file_arm" "$file_uni"
-            fi
-          done < <(cd "$ARM" && find . -type f -print0)
-
-          # Sanity: confirm executable is now fat
-          file "$UNI/cardputer-emu"
-          lipo -info "$UNI/cardputer-emu"
-
-          cd universal && tar czf ../M5CardputerZero-Emulator-macOS-universal.tar.gz M5CardputerZero-Emulator
-      - uses: actions/upload-artifact@v4
-        with:
-          name: emulator-macos-universal
-          path: M5CardputerZero-Emulator-macOS-universal.tar.gz
+          name: emulator-macos-arm64
+          path: M5CardputerZero-Emulator-macOS-arm64.tar.gz
 
   # ── Windows x64 (MinGW-w64) ────────────────────────────────────────────────
   windows:
@@ -229,7 +184,7 @@ jobs:
 
   # ── Pre-release (after every native + web build is green) ───────────────────
   release:
-    needs: [macos, macos-universal, windows, linux, web]
+    needs: [macos-arm64, windows, linux, web]
     runs-on: ubuntu-22.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
@@ -252,16 +207,12 @@ jobs:
 
           **Downloads:**
           - macOS arm64: \`M5CardputerZero-Emulator-macOS-arm64.tar.gz\`
-          - macOS x64: \`M5CardputerZero-Emulator-macOS-x64.tar.gz\`
-          - macOS Universal: \`M5CardputerZero-Emulator-macOS-universal.tar.gz\`
           - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
           - Windows x64 (MinGW): \`M5CardputerZero-Emulator-Windows-x64.zip\`
           - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
           - Playground (hosted): \`M5CardputerZero-Playground.zip\`" \
             --prerelease \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.tar.gz \
-            artifacts/emulator-macos-x64/M5CardputerZero-Emulator-macOS-x64.tar.gz \
-            artifacts/emulator-macos-universal/M5CardputerZero-Emulator-macOS-universal.tar.gz \
             artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
             artifacts/emulator-windows-x64/M5CardputerZero-Emulator-Windows-x64.zip \
             artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip \
