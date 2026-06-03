@@ -8,3 +8,6 @@ build-*/
 # Local-only vendored headers (legacy from previous vendor layout). Picked up
 # by cmake/third_party.cmake when present but not required for the build.
 /vendor/nlohmann/
+
+# macOS packaging output
+/dist/

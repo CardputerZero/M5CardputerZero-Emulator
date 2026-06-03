@@ -8,8 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── macOS arm64 + x64 (matrix) ──────────────────────────────────────────────
-  # ── macOS arm64 (static, ad-hoc signed, zip + dmg) ──────────────────────────
+  # ── macOS arm64 (static, ad-hoc signed .app + DMG + zip) ────────────────────
   # SDL2/Freetype/libpng are statically linked into cardputer-emu (see
   # EMU_MACOS_STATIC_DEPS in CMakeLists.txt) and SDL2_image is gone, so the
   # bundle ships NO third-party dylibs — only our own libAPPLaunch/libUserDemo.
@@ -35,40 +34,30 @@ jobs:
           mkdir build && cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release -DEMU_MACOS_STATIC_DEPS=ON
           make -j$(sysctl -n hw.ncpu)
-      - name: Assemble bundle + ad-hoc sign
+      - name: Verify static link (no third-party dylibs)
         run: |
           set -euxo pipefail
-          DIST=dist/M5CardputerZero-Emulator
-          mkdir -p "$DIST"
-          cp build/cardputer-emu "$DIST/"
-          cp -r build/apps "$DIST/"
-          cp -r build/assets "$DIST/"
-          cp -r build/APPLaunch "$DIST/"
-
-          # Sanity: the executable must carry no third-party dylib references.
           echo "== otool -L cardputer-emu =="
-          otool -L "$DIST/cardputer-emu"
-          if otool -L "$DIST/cardputer-emu" | grep -E '/opt/homebrew|/usr/local' ; then
+          otool -L build/cardputer-emu
+          if otool -L build/cardputer-emu | grep -E '/opt/homebrew|/usr/local' ; then
             echo "::error::cardputer-emu still references Homebrew dylibs — static link failed"
             exit 1
           fi
-
-          # Ad-hoc codesign every Mach-O so Gatekeeper sees a valid (if
-          # unidentified) signature instead of "damaged / cannot verify".
-          for f in "$DIST/cardputer-emu" "$DIST"/apps/*.dylib; do
-            codesign --force --sign - --timestamp=none "$f"
-            codesign --verify --verbose "$f"
-          done
-      - name: Package — green zip
+      - name: Package — .app bundle + DMG + zip
         run: |
           set -euxo pipefail
-          # Strip the quarantine xattr so first launch is prompt-free, then zip.
-          xattr -cr dist/M5CardputerZero-Emulator
-          (cd dist && zip -ry ../M5CardputerZero-Emulator-macOS-arm64.zip M5CardputerZero-Emulator)
+          mkdir -p dist
+          # Builds "M5CardputerZero Emulator.app" (ad-hoc signed) + the DMG.
+          SIGN_ID="-" scripts/make_macos_app.sh build dist
+          # Also zip the .app for users who prefer a plain archive.
+          (cd dist && zip -ry "../M5CardputerZero-Emulator-macOS-arm64.zip" "M5CardputerZero Emulator.app")
+          cp dist/M5CardputerZero-Emulator-macOS-arm64.dmg .
       - uses: actions/upload-artifact@v4
         with:
           name: emulator-macos-arm64
-          path: M5CardputerZero-Emulator-macOS-arm64.zip
+          path: |
+            M5CardputerZero-Emulator-macOS-arm64.zip
+            M5CardputerZero-Emulator-macOS-arm64.dmg
 
   # ── Windows x64 (MinGW-w64) ────────────────────────────────────────────────
   windows:
@@ -217,14 +206,16 @@ jobs:
             --notes "Automated pre-release from commit ${GITHUB_SHA:0:7}
 
           **Downloads:**
-          - macOS arm64: \`M5CardputerZero-Emulator-macOS-arm64.zip\`
+          - macOS arm64 (DMG): \`M5CardputerZero-Emulator-macOS-arm64.dmg\`
+          - macOS arm64 (.app zip): \`M5CardputerZero-Emulator-macOS-arm64.zip\`
           - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
           - Windows x64 (MinGW): \`M5CardputerZero-Emulator-Windows-x64.zip\`
           - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
           - Playground (hosted): \`M5CardputerZero-Playground.zip\`
 
-          _macOS build is statically linked and ad-hoc signed — unzip and run, no Gatekeeper prompts._" \
+          _macOS is a self-contained, ad-hoc-signed .app (static SDL2/Freetype, no third-party dylibs). First launch may need right-click → Open (not notarized)._" \
             --prerelease \
+            artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.dmg \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.zip \
             artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
             artifacts/emulator-windows-x64/M5CardputerZero-Emulator-Windows-x64.zip \

@@ -261,7 +261,8 @@ extern "C" {
 // startup. We resolve assets against this rather than relying on the current
 // working directory — a downloaded build is launched from Finder / an
 // arbitrary cwd, and linking SDL2main means we can't assume cwd is the bundle.
-static char g_exe_dir[2048] = ".";
+static char g_exe_dir[2048] = ".";   // dir of the executable
+static char g_res_dir[2048] = ".";   // where data resources live (assets/, APPLaunch/)
 
 static void resolve_exe_dir()
 {
@@ -292,22 +293,42 @@ static void resolve_exe_dir()
         snprintf(g_exe_dir, sizeof(g_exe_dir), "%s", path);
     }
 #endif
-    // Also cd there so any other relative-path consumers keep working.
+    // Resource root: inside a .app the executable sits in Contents/MacOS while
+    // data resources are in Contents/Resources. Detect that and point g_res_dir
+    // at ../Resources; otherwise resources sit next to the executable.
+    {
+        size_t n = strlen(g_exe_dir);
+        const char macos_suffix[] = "/Contents/MacOS";
+        size_t sl = sizeof(macos_suffix) - 1;
+        if (n > sl && strcmp(g_exe_dir + (n - sl), macos_suffix) == 0) {
+            snprintf(g_res_dir, sizeof(g_res_dir), "%.*s/Contents/Resources",
+                     (int)(n - sl), g_exe_dir);
+        } else {
+            snprintf(g_res_dir, sizeof(g_res_dir), "%s", g_exe_dir);
+        }
+    }
+
+    // cd to the RESOURCE dir, not the exe dir. APPLaunch's ui_init() calls
+    // hal_paths_init(NULL) internally, which resets every asset path to the
+    // cwd-relative default "./APPLaunch/share/...". So the resource tree must
+    // be reachable from cwd. The dlopen'd app dylib is loaded by ABSOLUTE path
+    // (see app_path below), so it doesn't care about cwd. In a .app the data
+    // lives in Contents/Resources; for a plain bundle g_res_dir == g_exe_dir.
 #ifdef _WIN32
-    SetCurrentDirectoryA(g_exe_dir);
+    SetCurrentDirectoryA(g_res_dir);
 #else
-    if (chdir(g_exe_dir) != 0) {
-        fprintf(stderr, "[EMU] warning: chdir(%s) failed\n", g_exe_dir);
+    if (chdir(g_res_dir) != 0) {
+        fprintf(stderr, "[EMU] warning: chdir(%s) failed\n", g_res_dir);
     }
 #endif
 }
 
-// Build an absolute path to a bundled resource (e.g. "assets/device_skin.png").
+// Build an absolute path to a bundled DATA resource (assets/, APPLaunch/…).
 // Returns a pointer to a static buffer — copy if you need to keep it.
 static const char *res_path(const char *rel)
 {
     static char buf[4096];
-    snprintf(buf, sizeof(buf), "%s/%s", g_exe_dir, rel);
+    snprintf(buf, sizeof(buf), "%s/%s", g_res_dir, rel);
     return buf;
 }
 
@@ -319,9 +340,16 @@ int main(int argc, char *argv[])
     // Windows: app statically linked, no dlopen
     const char *app_path = "(static-linked UserDemo)";
 #elif defined(__APPLE__)
-    const char *app_path = "apps/libAPPLaunch.dylib";
+    // dlopen path: the app dylib lives next to the executable (Contents/MacOS
+    // in a .app), so it shares the bundle's signature → passes library
+    // validation. Build an absolute path off g_exe_dir.
+    static char s_app_path[4096];
+    snprintf(s_app_path, sizeof(s_app_path), "%s/apps/libAPPLaunch.dylib", g_exe_dir);
+    const char *app_path = s_app_path;
 #else
-    const char *app_path = "apps/libAPPLaunch.so";
+    static char s_app_path[4096];
+    snprintf(s_app_path, sizeof(s_app_path), "%s/apps/libAPPLaunch.so", g_exe_dir);
+    const char *app_path = s_app_path;
 #endif
 #ifndef EMU_STATIC_APP
     if (argc > 1) app_path = argv[1];
@@ -379,10 +407,10 @@ int main(int argc, char *argv[])
     printf("[EMU] App keyboard driver (static)\n");
     printf("[EMU] Loaded: %s\n", app_path);
     // APPLaunch resolves its assets (icons/fonts/audio) relative to a base dir
-    // passed via hal_paths_init(). Point it at the executable directory.
+    // passed via hal_paths_init(). hal_paths_init is C linkage (hal_paths_sdl.c).
     {
-        extern void hal_paths_init(const char *);
-        hal_paths_init(g_exe_dir);
+        extern "C" void hal_paths_init(const char *);
+        hal_paths_init(g_res_dir);
     }
     ui_init();
 #else
@@ -395,7 +423,7 @@ int main(int argc, char *argv[])
     // only works when launched from the bundle root.
     typedef void (*hal_paths_init_fn)(const char *);
     hal_paths_init_fn hal_paths_init = (hal_paths_init_fn)emu_dlsym(app, "hal_paths_init");
-    if (hal_paths_init) hal_paths_init(g_exe_dir);
+    if (hal_paths_init) hal_paths_init(g_res_dir);
 
     auto kbd_create = (sdl_kbd_create_fn)emu_dlsym(app, "lv_sdl_keyboard_create");
     g_kbd_handler = (sdl_kbd_handler_fn)emu_dlsym(app, "lv_sdl_keyboard_handler");
