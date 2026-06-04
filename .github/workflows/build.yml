@@ -113,18 +113,10 @@ jobs:
           mkdir -p dist-web
           cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data build-web/coi-serviceworker.js dist-web/
           (cd dist-web && zip -rq ../M5CardputerZero-Emulator-Web.zip .)
-          mkdir -p dist-playground/emulator
-          cp web-playground/index.html dist-playground/
-          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/index.data build-web/coi-serviceworker.js dist-playground/emulator/
-          (cd dist-playground && zip -rq ../M5CardputerZero-Playground.zip .)
       - uses: actions/upload-artifact@v4
         with:
           name: emulator-web
           path: M5CardputerZero-Emulator-Web.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: playground
-          path: M5CardputerZero-Playground.zip
 
   # ── Pre-release (after every native + web build is green) ───────────────────
   release:
@@ -154,12 +146,10 @@ jobs:
           - macOS arm64 (.app zip): \`M5CardputerZero-Emulator-macOS-arm64.zip\`
           - Linux x64: \`M5CardputerZero-Emulator-Linux-x64.tar.gz\`
           - Web (WASM): \`M5CardputerZero-Emulator-Web.zip\`
-          - Playground (hosted): \`M5CardputerZero-Playground.zip\`
 
           _macOS is a self-contained, ad-hoc-signed .app (static SDL2/Freetype, no third-party dylibs). First launch may need right-click → Open (not notarized)._" \
             --prerelease \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.dmg \
             artifacts/emulator-macos-arm64/M5CardputerZero-Emulator-macOS-arm64.zip \
             artifacts/emulator-linux-x64/M5CardputerZero-Emulator-Linux-x64.tar.gz \
-            artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip \
-            artifacts/playground/M5CardputerZero-Playground.zip
+            artifacts/emulator-web/M5CardputerZero-Emulator-Web.zip
